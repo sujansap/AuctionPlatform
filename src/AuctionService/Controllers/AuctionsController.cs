@@ -3,6 +3,7 @@ using AuctionService.Dtos;
 using AuctionService.Entities;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Authorization;
 
 namespace AuctionService.Controllers;
 
@@ -30,6 +31,7 @@ public class AuctionsController(AuctionDbContext db) : ControllerBase
         return auction is null ? NotFound() : ToDto(auction);
     }
 
+    [Authorize]
     [HttpPost]
     public async Task<ActionResult<AuctionDto>> Create(CreateAuctionDto dto)
     {
@@ -43,7 +45,7 @@ public class AuctionsController(AuctionDbContext db) : ControllerBase
             Description = dto.Description,
             ReservePrice = dto.ReservePrice,
             EndsAt = dto.EndsAt.ToUniversalTime(),
-            Seller = "test-seller" // TODO: replace by the JWT user later
+            Seller = User.Identity!.Name!   // from the JWT, not hardcoded
         };
 
         db.Auctions.Add(auction);
@@ -51,11 +53,16 @@ public class AuctionsController(AuctionDbContext db) : ControllerBase
         return CreatedAtAction(nameof(GetById), new { id = auction.Id }, ToDto(auction));
     }
 
+    [Authorize]
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id)
     {
         var auction = await db.Auctions.FindAsync(id);
         if (auction is null) return NotFound();
+
+        if (auction.Seller != User.Identity!.Name)
+            return Forbid();   // only the seller may delete
+
         db.Auctions.Remove(auction);
         await db.SaveChangesAsync();
         return NoContent();

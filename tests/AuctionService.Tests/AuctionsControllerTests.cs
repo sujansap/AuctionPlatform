@@ -3,6 +3,8 @@ using AuctionService.Data;
 using AuctionService.Dtos;
 using AuctionService.Entities;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
+using Microsoft.AspNetCore.Http;
 
 namespace AuctionService.Tests;
 
@@ -14,6 +16,19 @@ public class AuctionsControllerTests : IDisposable
     public AuctionsControllerTests()
     {
         _sut = new AuctionsController(_db);
+        AsUser("alice");
+    }
+
+    private void AsUser(string username)
+    {
+        var identity = new ClaimsIdentity(
+            new[] { new Claim("name", username) },
+            authenticationType: "test", nameType: "name", roleType: "role");
+
+        _sut.ControllerContext = new ControllerContext
+        {
+            HttpContext = new DefaultHttpContext { User = new ClaimsPrincipal(identity) }
+        };
     }
 
     public void Dispose() => _db.Dispose();
@@ -46,6 +61,20 @@ public class AuctionsControllerTests : IDisposable
         Assert.IsType<BadRequestObjectResult>(result.Result);
         Assert.Empty(_db.Auctions);
     }
+
+    [Fact]
+    public async Task Create_SetsSellerFromAuthenticatedUser()
+    {
+        AsUser("bob");
+        var dto = new CreateAuctionDto("Chair", "Solid oak", 20m, DateTime.UtcNow.AddDays(1));
+
+        var result = await _sut.Create(dto);
+
+        var created = Assert.IsType<CreatedAtActionResult>(result.Result);
+        Assert.Equal("bob", Assert.IsType<AuctionDto>(created.Value).Seller);
+    }
+
+
 
     // ---------- GetById ----------
 
@@ -127,16 +156,28 @@ public class AuctionsControllerTests : IDisposable
         Assert.IsType<NotFoundResult>(result);
     }
 
+    [Fact]
+    public async Task Delete_AuctionOwnedBySomeoneElse_ReturnsForbidAndKeepsAuction()
+    {
+        var auction = await SeedAuction("Alice's item", seller: "alice");
+        AsUser("mallory");
+
+        var result = await _sut.Delete(auction.Id);
+
+        Assert.IsType<ForbidResult>(result);
+        Assert.Single(_db.Auctions);
+    }
+
     // ---------- Helpers ----------
 
-    private async Task<Auction> SeedAuction(string title, DateTime? createdAt = null)
+    private async Task<Auction> SeedAuction(string title, DateTime? createdAt = null, string seller = "alice")
     {
         var auction = new Auction
         {
             Id = Guid.NewGuid(),
             Title = title,
             Description = "Seeded",
-            Seller = "tester",
+            Seller = seller,
             ReservePrice = 50m,
             CreatedAt = createdAt ?? DateTime.UtcNow,
             EndsAt = DateTime.UtcNow.AddDays(1)
