@@ -21,6 +21,18 @@ services:
     volumes:
       - identity-data:/var/lib/postgresql/data
 
+  bidding-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: bidding
+    ports:
+      - "5434:5432"
+    volumes:
+      - bidding-data:/var/lib/postgresql/data
+
 volumes:
   auction-data:
   identity-data:
+  bidding-data:
