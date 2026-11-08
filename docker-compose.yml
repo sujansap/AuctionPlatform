@@ -36,3 +36,4 @@ volumes:
   auction-data:
   identity-data:
   bidding-data:
+
