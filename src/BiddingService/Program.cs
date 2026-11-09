@@ -4,6 +4,8 @@ using BiddingService.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using BiddingService.Consumers;
+using MassTransit;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -13,9 +15,33 @@ builder.Services.AddOpenApi();
 builder.Services.AddDbContext<BiddingDbContext>(o =>
     o.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
 
-builder.Services.AddHttpClient<IAuctionClient, AuctionClient>(c =>
-    c.BaseAddress = new Uri(builder.Configuration["Services:AuctionService"]
-        ?? throw new InvalidOperationException("Services:AuctionService is not configured.")));
+
+builder.Services.AddMassTransit(x =>
+{
+    x.SetEndpointNameFormatter(new KebabCaseEndpointNameFormatter("bidding", false));
+    x.AddConsumersFromNamespaceContaining<AuctionCreatedConsumer>();
+
+    x.AddEntityFrameworkOutbox<BiddingDbContext>(o =>
+    {
+        o.QueryDelay = TimeSpan.FromSeconds(1);
+        o.UsePostgres();
+        o.UseBusOutbox();
+    });
+
+    x.UsingRabbitMq((context, cfg) =>
+    {
+        var rabbit = builder.Configuration.GetSection("RabbitMq");
+        cfg.Host(
+            rabbit["Host"] ?? throw new InvalidOperationException("RabbitMq:Host is not configured."),
+            "/",
+            h =>
+            {
+                h.Username(rabbit["Username"] ?? throw new InvalidOperationException("RabbitMq:Username is not configured."));
+                h.Password(rabbit["Password"] ?? throw new InvalidOperationException("RabbitMq:Password is not configured."));
+            });
+        cfg.ConfigureEndpoints(context);
+    });
+});
 
 builder.Services.AddScoped<BidService>();
 

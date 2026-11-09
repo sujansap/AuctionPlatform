@@ -1,5 +1,6 @@
 using AuctionService.Entities;
 using Microsoft.EntityFrameworkCore;
+using MassTransit;
 
 namespace AuctionService.Data;
 
@@ -16,5 +17,9 @@ public class AuctionDbContext(DbContextOptions<AuctionDbContext> options) : DbCo
             e.Property(a => a.CurrentHighBid).HasPrecision(18, 2);
             e.Property(a => a.Status).HasConversion<string>();
         });
+
+        b.AddInboxStateEntity();
+        b.AddOutboxMessageEntity();
+        b.AddOutboxStateEntity();
     }
 }

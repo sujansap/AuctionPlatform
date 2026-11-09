@@ -4,12 +4,14 @@ using AuctionService.Entities;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authorization;
+using Contracts;
+using MassTransit;
 
 namespace AuctionService.Controllers;
 
 [ApiController]
 [Route("api/auctions")]
-public class AuctionsController(AuctionDbContext db) : ControllerBase
+public class AuctionsController(AuctionDbContext db, IPublishEndpoint publish) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<List<AuctionDto>>> GetAll(
@@ -35,6 +37,7 @@ public class AuctionsController(AuctionDbContext db) : ControllerBase
     [HttpPost]
     public async Task<ActionResult<AuctionDto>> Create(CreateAuctionDto dto)
     {
+        
         if (dto.EndsAt <= DateTime.UtcNow)
             return BadRequest("EndsAt must be in the future.");
 
@@ -49,7 +52,11 @@ public class AuctionsController(AuctionDbContext db) : ControllerBase
         };
 
         db.Auctions.Add(auction);
-        await db.SaveChangesAsync();
+        
+        await publish.Publish(new AuctionCreated(
+        auction.Id, auction.Seller, auction.ReservePrice, auction.EndsAt));
+
+        await db.SaveChangesAsync();  
         return CreatedAtAction(nameof(GetById), new { id = auction.Id }, ToDto(auction));
     }
 

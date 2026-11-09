@@ -1,7 +1,8 @@
 using BiddingService.Data;
 using BiddingService.Entities;
+using Contracts;
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
-using Npgsql;
 
 namespace BiddingService.Services;
 
@@ -9,7 +10,7 @@ public enum BidOutcome { Placed, AuctionNotFound, AuctionClosed, OwnAuction, Too
 
 public record PlaceBidResult(BidOutcome Outcome, Bid? Bid = null, decimal? CurrentHighBid = null);
 
-public class BidService(BiddingDbContext db, IAuctionClient auctions)
+public class BidService(BiddingDbContext db, IPublishEndpoint publish)
 {
     private const int MaxAttempts = 3;
 
@@ -19,21 +20,9 @@ public class BidService(BiddingDbContext db, IAuctionClient auctions)
         for (var attempt = 1; attempt <= MaxAttempts; attempt++)
         {
             var state = await db.AuctionStates.FirstOrDefaultAsync(a => a.AuctionId == auctionId, ct);
-            var isNew = state is null;
 
             if (state is null)
-            {
-                var info = await auctions.GetAuctionAsync(auctionId, ct);
-                if (info is null) return new(BidOutcome.AuctionNotFound);
-
-                state = new AuctionState
-                {
-                    AuctionId = info.Id,
-                    Seller = info.Seller,
-                    ReservePrice = info.ReservePrice,
-                    EndsAt = info.EndsAt
-                };
-            }
+                return new(BidOutcome.AuctionNotFound);
 
             if (state.Seller == bidder)
                 return new(BidOutcome.OwnAuction);
@@ -54,27 +43,25 @@ public class BidService(BiddingDbContext db, IAuctionClient auctions)
 
             state.HighestBid = amount;
             state.HighestBidder = bidder;
-
-            if (isNew) db.AuctionStates.Add(state);
             db.Bids.Add(bid);
+
+            // queued in the outbox, committed together with the bid below
+            await publish.Publish(
+                new BidPlaced(bid.Id, auctionId, bidder, amount, bid.PlacedAt), ct);
 
             try
             {
                 await db.SaveChangesAsync(ct);
                 return new(BidOutcome.Placed, bid, amount);
             }
-            catch (Exception ex) when (IsConflict(ex))
+            catch (DbUpdateConcurrencyException)
             {
-                // someone else changed this auction between our read and our write:
-                // throw away our stale view, then re-read and re-check the rules
+                // someone else bid in between: discard our stale state (including the
+                // queued outbox message), then re-read and re-check the rules
                 db.ChangeTracker.Clear();
             }
         }
 
         return new(BidOutcome.Conflict);
     }
-
-    private static bool IsConflict(Exception ex) =>
-        ex is DbUpdateConcurrencyException
-        || ex is DbUpdateException { InnerException: PostgresException { SqlState: PostgresErrorCodes.UniqueViolation } };
 }

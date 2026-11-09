@@ -1,6 +1,6 @@
 using BiddingService.Entities;
 using Microsoft.EntityFrameworkCore;
-
+using MassTransit;
 namespace BiddingService.Data;
 
 public class BiddingDbContext(DbContextOptions<BiddingDbContext> options) : DbContext(options)
@@ -27,5 +27,9 @@ public class BiddingDbContext(DbContextOptions<BiddingDbContext> options) : DbCo
             e.HasIndex(x => new { x.AuctionId, x.Amount });
             e.HasOne<AuctionState>().WithMany().HasForeignKey(x => x.AuctionId);
         });
+
+        b.AddInboxStateEntity();
+        b.AddOutboxMessageEntity();
+        b.AddOutboxStateEntity();
     }
 }

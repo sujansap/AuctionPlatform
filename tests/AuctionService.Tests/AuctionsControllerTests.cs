@@ -5,6 +5,9 @@ using AuctionService.Entities;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
+using Contracts;
+using MassTransit;
+using NSubstitute;
 
 namespace AuctionService.Tests;
 
@@ -12,10 +15,10 @@ public class AuctionsControllerTests : IDisposable
 {
     private readonly AuctionDbContext _db = TestDb.Create();
     private readonly AuctionsController _sut;
-
+    private readonly IPublishEndpoint _publish = Substitute.For<IPublishEndpoint>();
     public AuctionsControllerTests()
     {
-        _sut = new AuctionsController(_db);
+        _sut = new AuctionsController(_db, _publish);
         AsUser("alice");
     }
 
@@ -75,6 +78,30 @@ public class AuctionsControllerTests : IDisposable
     }
 
 
+    [Fact]
+    public async Task Create_PublishesAuctionCreatedEvent()
+    {
+        var dto = new CreateAuctionDto("Vintage camera", "Works great", 100m,
+            DateTime.UtcNow.AddDays(1));
+
+        await _sut.Create(dto);
+
+        await _publish.Received(1).Publish(
+            Arg.Is<AuctionCreated>(e => e.Seller == "alice" && e.ReservePrice == 100m),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Create_InvalidAuction_PublishesNothing()
+    {
+        var dto = new CreateAuctionDto("Old item", "Too late", 10m,
+            DateTime.UtcNow.AddMinutes(-5));
+
+        await _sut.Create(dto);
+
+        await _publish.DidNotReceive().Publish(
+            Arg.Any<AuctionCreated>(), Arg.Any<CancellationToken>());
+    }
 
     // ---------- GetById ----------
 

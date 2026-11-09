@@ -10,6 +10,13 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
 
+    environment: build_and_test
+
+    env:
+      RabbitMq__Host: ${{ secrets.RABBITMQ_HOST }}
+      RabbitMq__Username: ${{ secrets.RABBITMQ_USERNAME }}
+      RabbitMq__Password: ${{ secrets.RABBITMQ_PASSWORD }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
