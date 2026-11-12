@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Auction live feed (test page)</title>
+</head>
+<body>
+  <h1>Auction live feed (test page)</h1>
+  <input id="auctionId" size="40" placeholder="auction id">
+  <button id="join">Watch</button>
+  <button id="leave">Stop watching</button>
+  <p id="status">Connecting…</p>
+  <ul id="log"></ul>
+
+  <script src="https://cdn.jsdelivr.net/npm/@microsoft/signalr@8.0.7/dist/browser/signalr.min.js"></script>
+  <script>
+    const status = document.getElementById("status");
+    const idInput = document.getElementById("auctionId");
+    const log = text => {
+      const li = document.createElement("li");
+      li.textContent = text;
+      document.getElementById("log").prepend(li);
+    };
+
+    let current = null; // the auction we are watching
+
+    const connection = new signalR.HubConnectionBuilder()
+      .withUrl("/hubs/auctions")
+      .withAutomaticReconnect()
+      .build();
+
+    connection.on("BidPlaced", b =>
+      log(`${new Date(b.placedAt).toLocaleTimeString()}  ${b.bidder} bid ${b.amount} on ${b.auctionId}`));
+
+    // a reconnect creates a NEW connection id, so group membership is lost: join again
+    connection.onreconnecting(() => status.textContent = "Reconnecting…");
+    connection.onreconnected(async () => {
+      status.textContent = "Connected";
+      if (current) await connection.invoke("JoinAuction", current);
+    });
+    connection.onclose(() => status.textContent = "Disconnected");
+
+    document.getElementById("join").onclick = async () => {
+      try {
+        const id = idInput.value.trim();
+        await connection.invoke("JoinAuction", id);
+        current = id;
+        log(`Watching ${id}`);
+      } catch (e) { log(`Error: ${e.message}`); }
+    };
+
+    document.getElementById("leave").onclick = async () => {
+      if (!current) return;
+      await connection.invoke("LeaveAuction", current);
+      log(`Stopped watching ${current}`);
+      current = null;
+    };
+
+    connection.start()
+      .then(() => status.textContent = "Connected")
+      .catch(e => status.textContent = "Failed: " + e.message);
+  </script>
+</body>
+</html>
